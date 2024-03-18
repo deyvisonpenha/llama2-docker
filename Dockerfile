@@ -34,6 +34,12 @@ RUN /bin/bash -c "source venv/bin/activate"
 
 # Install Python dependencies
 RUN pip install langchain fastapi uvicorn
+
+# Base ctransformers with ** no ** GPU acceleration
+# RUN pip install ctransformers>=0.2.24
+# Base ctransformers with no GPU acceleration
+# RUN pip install ctransformers>=0.2.24
+# Or with ROCm GPU acceleration
 RUN CT_HIPBLAS=1 pip install ctransformers>=0.2.24 --no-binary ctransformers
 
 CMD ["sh", "-c", "uvicorn generativeAIStream:app --reload --port=80 --host=0.0.0.0"]
