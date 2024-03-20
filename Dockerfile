@@ -44,4 +44,6 @@ RUN pip install ctransformers[cuda]>=0.2.24
 # Expose the SSH port and the HTTP port for API endpoint
 EXPOSE 22 80
 
+# Start supervisord
+# CMD ["/usr/bin/supervisord"]
 CMD ["sh", "-c", "uvicorn generativeAIStream:app --reload --port=80 --host=0.0.0.0"]
