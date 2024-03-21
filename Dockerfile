@@ -1,5 +1,7 @@
 FROM ubuntu:latest
 
+ENV ROOT_PASSWORD='P@ssW0rd##'
+
 # Install OpenSSH, Nginx and supervisor
 RUN apt-get update && apt-get install -y \
     openssh-server \
@@ -11,7 +13,7 @@ RUN apt-get update && apt-get install -y \
 
 # Setup SSH server
 RUN mkdir /var/run/sshd
-RUN echo 'root:P@ssW0rd##' | chpasswd
+RUN echo "root:$ROOT_PASSWORD" | chpasswd
 RUN sed -i 's/#PermitRootLogin prohibit-password/PermitRootLogin yes/' /etc/ssh/sshd_config
 # to avoid issue with key exchange on macos ssh clients
 RUN echo "KexAlgorithms=ecdh-sha2-nistp521" >> /etc/ssh/sshd_config
@@ -45,5 +47,5 @@ RUN pip install ctransformers[cuda]>=0.2.24
 EXPOSE 22 80
 
 # Start supervisord
-# CMD ["/usr/bin/supervisord"]
-CMD ["sh", "-c", "uvicorn generativeAIStream:app --reload --port=80 --host=0.0.0.0"]
+CMD ["/usr/bin/supervisord"]
+# CMD ["sh", "-c", "uvicorn generativeAIStream:app --reload --port=80 --host=0.0.0.0"]
