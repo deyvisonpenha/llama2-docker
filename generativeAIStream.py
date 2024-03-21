@@ -1,42 +1,100 @@
+import asyncio
+from typing import AsyncIterable, Awaitable, Callable, Optional, Union, Any
 
-from langchain_community.llms import CTransformers
-from pydantic import BaseModel
 from fastapi import FastAPI
-from langchain.chains import LLMChain
+from fastapi.responses import StreamingResponse
+from fastapi.middleware.cors import CORSMiddleware
+from langchain.callbacks import AsyncIteratorCallbackHandler
+from langchain.callbacks.base import AsyncCallbackHandler
+from pydantic import BaseModel
+
+from langchain_community.llms import LlamaCpp
 from langchain.prompts import PromptTemplate
+from langchain.chains import LLMChain
+from langchain.callbacks.manager import CallbackManager
+from langchain_core.output_parsers import StrOutputParser
 
 app = FastAPI()
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
-class Question(BaseModel):
-    question: str
-# model to download at root dir
-# https://huggingface.co/TheBloke/Llama-2-7B-Chat-GGUF/blob/main/llama-2-7b-chat.Q4_K_M.gguf
-def load_model() -> CTransformers:
-    """ Load Llama Model"""
-    config = {'max_new_tokens': 2000, 'repetition_penalty': 1, 'context_length': 8000, 'temperature':0.3, 'gpu_layers':50}
-    # Set gpu_layers to the number of layers to offload to GPU. Set to 0 if no GPU acceleration is available on your system.
-    Llama_model: CTransformers = CTransformers(
-        model="./llama-2-7b-chat.Q4_K_M.gguf", 
-        model_type="llama", 
-        verbose= True,
-        config=config
-    )
-    return Llama_model
+Sender = Callable[[Union[str, bytes]], Awaitable[None]]
+ # Callbacks support token-wise streaming
+callback = AsyncIteratorCallbackHandler()
+callback_manager = CallbackManager([callback])
+# Verbose is required to pass to the callback manager
+template = """Let's work this out in a step by step way to be sure we have the right answer: {prompt}
 
-llm = load_model()
+Answer: ."""
 
-template = """Question: {question}
+prompt = PromptTemplate(template=template, input_variables=["prompt"])
 
-Answer:"""
-
-prompt = PromptTemplate.from_template(template)
+# Make sure the model path is correct for your system!
+llm = LlamaCpp(
+    model_path="./llama-2-7b-chat.Q4_K_M.gguf",    # replace with your model path
+    callback_manager=callback_manager,
+    verbose=True,
+    n_gpu_layers=50,
+    n_batch=512,  # Batch size for model processing
+    streaming=True,
+)
 
 llm_chain = LLMChain(prompt=prompt, llm=llm)
 
+class AsyncStreamCallbackHandler(AsyncCallbackHandler):
+    """Callback handler for streaming, inheritance from AsyncCallbackHandler."""
+
+    def __init__(self, send: Sender):
+        super().__init__()
+        self.send = send
+
+    async def on_llm_new_token(self, token: str, **kwargs: Any) -> None:
+        """Rewrite on_llm_new_token to send token to client."""
+        await self.send(f"data: {token}\n\n")
+
+
+async def stream_message(message: str) -> AsyncIterable[str]:
+    async def wrap_done(fn: Awaitable, event: asyncio.Event):
+        """Wrap an awaitable with an event to signal when it's done or an exception is raised."""
+        try:
+            await fn
+        except Exception as e:
+            # TODO: handle exception
+            print(f"Caught exception: {e}")
+        finally:
+            # Signal the aiter to stop.
+            event.set()
+
+    # Begin a task that runs in the background.
+    task = asyncio.create_task(wrap_done(
+        llm_chain.arun(message),
+        callback.done),
+    )
+
+    async for token in callback.aiter():
+        # Use server-sent-events to stream the response
+        yield token
+
+    await task
+
+
+class Request(BaseModel):
+    """Request body for streaming."""
+    prompt: str
+
 @app.get("/")
-def index():
-    return {"message": "Welcome to the LLM generative API"}
+def stream():
+    return StreamingResponse(stream_message("can you tell me a joke about parrot?"), media_type="text/event-stream")
+
+@app.post("/stream_completions")
+def stream(body: Request):
+    return StreamingResponse(stream_message(body.prompt), media_type="text/event-stream")
 
 @app.post("/completions")
-async def completions(question: Question):
-    return llm_chain.invoke(question.question)
+def stream(body: Request):
+    return llm_chain.invoke(body.prompt)
