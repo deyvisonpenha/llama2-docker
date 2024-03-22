@@ -25,10 +25,14 @@ app.add_middleware(
 
 Sender = Callable[[Union[str, bytes]], Awaitable[None]]
  
+template = """Let's work this out in a step by step way to be sure we have the right answer: {prompt}
+
+    Answer: ."""
+
+prompt = PromptTemplate(template=template, input_variables=["prompt"])
 
 class AsyncStreamCallbackHandler(AsyncCallbackHandler):
     """Callback handler for streaming, inheritance from AsyncCallbackHandler."""
-
     def __init__(self, send: Sender):
         super().__init__()
         self.send = send
@@ -42,13 +46,6 @@ async def stream_message(message: str) -> AsyncIterable[str]:
     # Callbacks support token-wise streaming
     callback = AsyncIteratorCallbackHandler()
     callback_manager = CallbackManager([callback])
-    # Verbose is required to pass to the callback manager
-    template = """Let's work this out in a step by step way to be sure we have the right answer: {prompt}
-
-    Answer: ."""
-
-    prompt = PromptTemplate(template=template, input_variables=["prompt"])
-
     # Make sure the model path is correct for your system!
     llm: CTransformers = CTransformers(
             model="./llama-2-7b-chat.Q4_K_M.gguf", 
@@ -83,12 +80,6 @@ async def stream_message(message: str) -> AsyncIterable[str]:
     await task
 
 def generate_message(message: str):
-    template = """Let's work this out in a step by step way to be sure we have the right answer: {prompt}
-
-    Answer: ."""
-
-    prompt = PromptTemplate(template=template, input_variables=["prompt"])
-
     # Make sure the model path is correct for your system!
     llm: CTransformers = CTransformers(
             model="./llama-2-7b-chat.Q4_K_M.gguf", 
@@ -97,7 +88,6 @@ def generate_message(message: str):
         )
 
     llm_chain = LLMChain(prompt=prompt, llm=llm)
-    
     return llm_chain.invoke(message)
 
 class Request(BaseModel):
@@ -106,7 +96,7 @@ class Request(BaseModel):
 
 @app.get("/")
 def stream():
-    return StreamingResponse(stream_message("can you tell me a joke about parrot?"), media_type="text/event-stream")
+    return StreamingResponse(stream_message("tell me about yourself, a generative IA assistent."), media_type="text/event-stream")
 
 @app.post("/stream_completions")
 def stream(body: Request):

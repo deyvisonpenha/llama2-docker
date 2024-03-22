@@ -34,7 +34,7 @@ RUN python3 -m venv venv
 RUN /bin/bash -c "source venv/bin/activate"
 
 # Install Python dependencies
-RUN pip install langchain fastapi uvicorn
+RUN pip install langchain fastapi uvicorn streamlit
 
 # Base ctransformers with ** no ** GPU acceleration
 # RUN pip install ctransformers>=0.2.24
@@ -44,8 +44,8 @@ RUN pip install ctransformers[cuda]>=0.2.24
 # RUN CT_HIPBLAS=1 pip install ctransformers>=0.2.24 --no-binary ctransformers
 
 # Expose the SSH port and the HTTP port for API endpoint
-EXPOSE 22 80
+EXPOSE 22 80 8501
 
 # Start supervisord
 CMD ["/usr/bin/supervisord"]
-# CMD ["sh", "-c", "uvicorn generativeAIStream:app --reload --port=80 --host=0.0.0.0"]
+CMD ["sh", "-c", "streamlit run streamlit_app.py"]
