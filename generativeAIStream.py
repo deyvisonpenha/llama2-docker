@@ -1,5 +1,5 @@
 import asyncio
-from typing import AsyncIterable, Awaitable, Callable, Optional, Union, Any
+from typing import AsyncIterable, Awaitable, Callable, Union, Any
 
 from fastapi import FastAPI
 from fastapi.responses import StreamingResponse
@@ -8,11 +8,11 @@ from langchain.callbacks import AsyncIteratorCallbackHandler
 from langchain.callbacks.base import AsyncCallbackHandler
 from pydantic import BaseModel
 
-from langchain_community.llms import LlamaCpp
 from langchain.prompts import PromptTemplate
 from langchain.chains import LLMChain
 from langchain.callbacks.manager import CallbackManager
 from langchain_core.output_parsers import StrOutputParser
+from langchain_community.llms import CTransformers
 
 app = FastAPI()
 app.add_middleware(
@@ -24,27 +24,7 @@ app.add_middleware(
 )
 
 Sender = Callable[[Union[str, bytes]], Awaitable[None]]
- # Callbacks support token-wise streaming
-callback = AsyncIteratorCallbackHandler()
-callback_manager = CallbackManager([callback])
-# Verbose is required to pass to the callback manager
-template = """Let's work this out in a step by step way to be sure we have the right answer: {prompt}
-
-Answer: ."""
-
-prompt = PromptTemplate(template=template, input_variables=["prompt"])
-
-# Make sure the model path is correct for your system!
-llm = LlamaCpp(
-    model_path="./llama-2-7b-chat.Q4_K_M.gguf",    # replace with your model path
-    callback_manager=callback_manager,
-    verbose=True,
-    n_gpu_layers=50,
-    n_batch=512,  # Batch size for model processing
-    streaming=True,
-)
-
-llm_chain = LLMChain(prompt=prompt, llm=llm)
+ 
 
 class AsyncStreamCallbackHandler(AsyncCallbackHandler):
     """Callback handler for streaming, inheritance from AsyncCallbackHandler."""
@@ -59,6 +39,26 @@ class AsyncStreamCallbackHandler(AsyncCallbackHandler):
 
 
 async def stream_message(message: str) -> AsyncIterable[str]:
+    # Callbacks support token-wise streaming
+    callback = AsyncIteratorCallbackHandler()
+    callback_manager = CallbackManager([callback])
+    # Verbose is required to pass to the callback manager
+    template = """Let's work this out in a step by step way to be sure we have the right answer: {prompt}
+
+    Answer: ."""
+
+    prompt = PromptTemplate(template=template, input_variables=["prompt"])
+
+    # Make sure the model path is correct for your system!
+    llm: CTransformers = CTransformers(
+            model="./llama-2-7b-chat.Q4_K_M.gguf", 
+            model_type="llama", 
+            verbose= True,
+            callback_manager=callback_manager,
+            config={'max_new_tokens': 2000, 'repetition_penalty': 1, 'context_length': 8000, 'temperature':0.3, 'gpu_layers':50, 'stream': True}
+        )
+
+    llm_chain = LLMChain(prompt=prompt, llm=llm)
     async def wrap_done(fn: Awaitable, event: asyncio.Event):
         """Wrap an awaitable with an event to signal when it's done or an exception is raised."""
         try:
@@ -82,6 +82,23 @@ async def stream_message(message: str) -> AsyncIterable[str]:
 
     await task
 
+def generate_message(message: str):
+    template = """Let's work this out in a step by step way to be sure we have the right answer: {prompt}
+
+    Answer: ."""
+
+    prompt = PromptTemplate(template=template, input_variables=["prompt"])
+
+    # Make sure the model path is correct for your system!
+    llm: CTransformers = CTransformers(
+            model="./llama-2-7b-chat.Q4_K_M.gguf", 
+            model_type="llama", 
+            config={'max_new_tokens': 2000, 'repetition_penalty': 1, 'context_length': 8000, 'temperature':0.3, 'gpu_layers':50}
+        )
+
+    llm_chain = LLMChain(prompt=prompt, llm=llm)
+    
+    return llm_chain.invoke(message)
 
 class Request(BaseModel):
     """Request body for streaming."""
@@ -97,4 +114,4 @@ def stream(body: Request):
 
 @app.post("/completions")
 def stream(body: Request):
-    return llm_chain.invoke(body.prompt)
+    return generate_message(body.prompt)
